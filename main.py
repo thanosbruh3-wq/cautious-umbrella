@@ -9,7 +9,7 @@ from datetime import datetime
 # ──────────────────────────────────────────────
 BOT_TOKEN    = os.environ["BOT_TOKEN"]       # set this in Render dashboard
 PREFIX       = os.environ.get("PREFIX", "!")
-MAX_DM_LIMIT = int(os.environ.get("MAX_DM_LIMIT", 50))
+MAX_DM_LIMIT = int(os.environ.get("MAX_DM_LIMIT", 99999))
 DM_COOLDOWN  = int(os.environ.get("DM_COOLDOWN", 30))
 
 # ──────────────────────────────────────────────
