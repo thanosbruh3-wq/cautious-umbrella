@@ -6,7 +6,7 @@ from datetime import datetime
 # ──────────────────────────────────────────────
 #  CONFIG
 # ──────────────────────────────────────────────
-BOT_TOKEN = "MTM4NTI4OTM0Njg3MzI5NDkzOQ.GM7w3o.h0Q_WMh8M8LsoVztH4s_jdBrx10jeKluD_tkPE"   # 🔑 Replace with your bot token
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 PREFIX    = "!"
 
 # Rate-limit: max DMs per invocation
