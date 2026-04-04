@@ -1,26 +1,22 @@
-import discord
 import os
-from discord.ext import commands
 import asyncio
+import discord
+from discord.ext import commands
 from datetime import datetime
 
 # ──────────────────────────────────────────────
-#  CONFIG
+#  CONFIG (from Render environment variables)
 # ──────────────────────────────────────────────
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-PREFIX    = "!"
-
-# Rate-limit: max DMs per invocation
-MAX_DM_LIMIT = 50
-
-# Cooldown (seconds) between uses of !dm per admin
-DM_COOLDOWN = 30
+BOT_TOKEN    = os.environ["BOT_TOKEN"]       # set this in Render dashboard
+PREFIX       = os.environ.get("PREFIX", "!")
+MAX_DM_LIMIT = int(os.environ.get("MAX_DM_LIMIT", 50))
+DM_COOLDOWN  = int(os.environ.get("DM_COOLDOWN", 30))
 
 # ──────────────────────────────────────────────
 #  INTENTS & BOT
 # ──────────────────────────────────────────────
-intents = discord.Intents.default()
-intents.members  = True   # needed to iterate guild members
+intents                 = discord.Intents.default()
+intents.members         = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
@@ -29,7 +25,6 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 #  HELPERS
 # ──────────────────────────────────────────────
 def is_admin():
-    """Custom check: caller must have Administrator permission."""
     async def predicate(ctx: commands.Context):
         if ctx.author.guild_permissions.administrator:
             return True
@@ -48,14 +43,13 @@ def is_admin():
 def make_progress_embed(sent: int, failed: int, skipped: int, total: int, done: bool = False) -> discord.Embed:
     color  = discord.Color.green() if done else discord.Color.blurple()
     status = "✅ Done" if done else "📤 Sending…"
-    embed  = discord.Embed(title=f"{status}", color=color, timestamp=datetime.utcnow())
+    embed  = discord.Embed(title=status, color=color, timestamp=datetime.utcnow())
     embed.add_field(name="✉️ Sent",    value=str(sent),    inline=True)
     embed.add_field(name="❌ Failed",  value=str(failed),  inline=True)
     embed.add_field(name="⏭️ Skipped", value=str(skipped), inline=True)
     embed.add_field(name="👥 Total",   value=str(total),   inline=True)
     embed.set_footer(text="dm_bot • mass DM")
     return embed
-
 
 # ──────────────────────────────────────────────
 #  EVENTS
@@ -64,36 +58,35 @@ def make_progress_embed(sent: int, failed: int, skipped: int, total: int, done: 
 async def on_ready():
     print(f"[dm_bot] Logged in as {bot.user} (ID: {bot.user.id})")
     await bot.change_presence(
-        activity=discord.Activity(type=discord.ActivityType.watching, name="!dm | admin only")
+        activity=discord.Activity(type=discord.ActivityType.watching, name=f"{PREFIX}dm | admin only")
     )
 
-
 # ──────────────────────────────────────────────
-#  !dm  COMMAND
+#  !dm COMMAND
 # ──────────────────────────────────────────────
 @bot.command(name="dm")
 @is_admin()
 @commands.cooldown(1, DM_COOLDOWN, commands.BucketType.user)
 async def dm_command(ctx: commands.Context):
-    """
-    Interactive admin DM command.
-    Usage: !dm  (then follow the prompts)
-    """
+    """Interactive admin mass-DM command."""
 
     def check_author(m: discord.Message) -> bool:
         return m.author == ctx.author and m.channel == ctx.channel
 
-    async def ask(prompt_embed: discord.Embed, *, timeout: float = 60.0) -> discord.Message | None:
+    async def ask(prompt_embed: discord.Embed, *, timeout: float = 60.0):
         await ctx.send(embed=prompt_embed)
         try:
             return await bot.wait_for("message", check=check_author, timeout=timeout)
         except asyncio.TimeoutError:
-            t = discord.Embed(title="⏰ Timed Out", description="No response in time. Command cancelled.", color=discord.Color.orange())
-            await ctx.send(embed=t)
+            await ctx.send(embed=discord.Embed(
+                title="⏰ Timed Out",
+                description="No response in time. Command cancelled.",
+                color=discord.Color.orange()
+            ))
             return None
 
-    # ── Step 1: target ────────────────────────────────────────────────────────
-    e1 = discord.Embed(
+    # ── Step 1: Target ────────────────────────────────────────────────────────
+    resp1 = await ask(discord.Embed(
         title="📬 Mass DM — Step 1 of 4: Target",
         description=(
             "Who should receive the DM?\n\n"
@@ -103,9 +96,7 @@ async def dm_command(ctx: commands.Context):
         ),
         color=discord.Color.blurple(),
         timestamp=datetime.utcnow()
-    )
-    e1.set_footer(text=f"Admin: {ctx.author} • dm_bot")
-    resp1 = await ask(e1)
+    ).set_footer(text=f"Admin: {ctx.author} • dm_bot"))
     if resp1 is None:
         return
 
@@ -114,7 +105,7 @@ async def dm_command(ctx: commands.Context):
         await ctx.send(embed=discord.Embed(title="🛑 Cancelled", color=discord.Color.red()))
         return
 
-    target_role: discord.Role | None = None
+    target_role = None
     target_everyone = False
 
     if raw_target == "everyone":
@@ -122,47 +113,43 @@ async def dm_command(ctx: commands.Context):
     elif resp1.role_mentions:
         target_role = resp1.role_mentions[0]
     else:
-        err = discord.Embed(
+        await ctx.send(embed=discord.Embed(
             title="❌ Invalid Target",
-            description='Type `everyone` or mention a role like `@Members`.',
+            description="Type `everyone` or mention a role like `@Members`.",
             color=discord.Color.red()
-        )
-        await ctx.send(embed=err)
+        ))
         return
 
-    # ── Step 2: title ─────────────────────────────────────────────────────────
-    e2 = discord.Embed(
+    # ── Step 2: Embed Title ───────────────────────────────────────────────────
+    resp2 = await ask(discord.Embed(
         title="📬 Mass DM — Step 2 of 4: Embed Title",
         description="What should the **title** of the DM embed be?\n*(max 256 characters)*",
         color=discord.Color.blurple(),
         timestamp=datetime.utcnow()
-    )
-    resp2 = await ask(e2)
+    ))
     if resp2 is None:
         return
 
     dm_title = resp2.content.strip()[:256]
 
-    # ── Step 3: message body ──────────────────────────────────────────────────
-    e3 = discord.Embed(
+    # ── Step 3: Message Body ──────────────────────────────────────────────────
+    resp3 = await ask(discord.Embed(
         title="📬 Mass DM — Step 3 of 4: Message Body",
         description="What's the **message** you want to send?\n*(max 4000 characters — supports Discord markdown)*",
         color=discord.Color.blurple(),
         timestamp=datetime.utcnow()
-    )
-    resp3 = await ask(e3, timeout=120.0)
+    ), timeout=120.0)
     if resp3 is None:
         return
 
     dm_body = resp3.content.strip()[:4000]
     if not dm_body:
-        await ctx.send(embed=discord.Embed(title="❌ Empty message", color=discord.Color.red()))
+        await ctx.send(embed=discord.Embed(title="❌ Empty message.", color=discord.Color.red()))
         return
 
-    # ── Step 4: confirmation ──────────────────────────────────────────────────
+    # ── Step 4: Preview & Confirm ─────────────────────────────────────────────
     target_label = "Everyone" if target_everyone else f"Role: @{target_role.name}"
 
-    # Build a preview
     preview_dm = discord.Embed(
         title=dm_title,
         description=dm_body,
@@ -172,34 +159,32 @@ async def dm_command(ctx: commands.Context):
     preview_dm.set_author(name=ctx.guild.name, icon_url=ctx.guild.icon.url if ctx.guild.icon else None)
     preview_dm.set_footer(text=f"Sent by {ctx.author.display_name} • {ctx.guild.name}")
 
-    e4 = discord.Embed(
+    await ctx.send(embed=discord.Embed(
         title="📬 Mass DM — Step 4 of 4: Confirm",
         description=(
             f"**Target:** {target_label}\n"
             f"**Limit:** up to **{MAX_DM_LIMIT}** members\n\n"
-            "Below is a **preview** of the DM.\n"
-            "Reply `yes` to send, or `no` / `cancel` to abort."
+            "Here's a **preview** of the DM.\n"
+            "Reply `yes` to send, or `no` to abort."
         ),
         color=discord.Color.gold(),
         timestamp=datetime.utcnow()
-    )
-    await ctx.send(embed=e4)
-    await ctx.send(embed=preview_dm)   # preview
+    ))
+    await ctx.send(embed=preview_dm)
 
     resp4 = await ask(discord.Embed(title="✅ Confirm? (yes / no)", color=discord.Color.gold()))
     if resp4 is None:
         return
-
     if resp4.content.strip().lower() not in ("yes", "y"):
         await ctx.send(embed=discord.Embed(title="🛑 Aborted", color=discord.Color.red()))
         return
 
-    # ── Collect members ───────────────────────────────────────────────────────
-    if target_everyone:
-        members = [m for m in ctx.guild.members if not m.bot]
-    else:
-        members = [m for m in target_role.members if not m.bot]
-
+    # ── Collect Members ───────────────────────────────────────────────────────
+    members = (
+        [m for m in ctx.guild.members if not m.bot]
+        if target_everyone
+        else [m for m in target_role.members if not m.bot]
+    )
     members = members[:MAX_DM_LIMIT]
     total   = len(members)
 
@@ -211,13 +196,12 @@ async def dm_command(ctx: commands.Context):
         ))
         return
 
-    # ── Confirm member count ──────────────────────────────────────────────────
-    count_embed = discord.Embed(
+    # ── Final Count Confirmation ──────────────────────────────────────────────
+    resp_go = await ask(discord.Embed(
         title="📋 Member Count",
         description=f"About to DM **{total}** member(s).\nReply `go` to start, or anything else to cancel.",
         color=discord.Color.blurple()
-    )
-    resp_go = await ask(count_embed)
+    ))
     if resp_go is None or resp_go.content.strip().lower() != "go":
         await ctx.send(embed=discord.Embed(title="🛑 Cancelled", color=discord.Color.red()))
         return
@@ -240,35 +224,29 @@ async def dm_command(ctx: commands.Context):
             await member.send(embed=dm_embed)
             sent += 1
         except discord.Forbidden:
-            skipped += 1   # DMs disabled
+            skipped += 1
         except discord.HTTPException:
             failed += 1
 
-        # Update progress every 10 members
         if (i + 1) % 10 == 0 or (i + 1) == total:
             await prog_msg.edit(embed=make_progress_embed(sent, failed, skipped, total))
 
-        await asyncio.sleep(0.1)   # fast (~10 DMs/sec)
+        await asyncio.sleep(0.1)  # ~10 DMs/sec
 
-    # ── Final report ──────────────────────────────────────────────────────────
+    # ── Final Report ──────────────────────────────────────────────────────────
     await prog_msg.edit(embed=make_progress_embed(sent, failed, skipped, total, done=True))
 
-    log_embed = discord.Embed(
-        title="📊 DM Report",
-        color=discord.Color.green(),
-        timestamp=datetime.utcnow()
-    )
-    log_embed.add_field(name="Admin",   value=ctx.author.mention, inline=True)
-    log_embed.add_field(name="Target",  value=target_label,       inline=True)
-    log_embed.add_field(name="✉️ Sent",    value=str(sent),    inline=True)
-    log_embed.add_field(name="⏭️ Skipped", value=str(skipped), inline=True)
-    log_embed.add_field(name="❌ Failed",  value=str(failed),  inline=True)
+    log_embed = discord.Embed(title="📊 DM Report", color=discord.Color.green(), timestamp=datetime.utcnow())
+    log_embed.add_field(name="Admin",      value=ctx.author.mention, inline=True)
+    log_embed.add_field(name="Target",     value=target_label,       inline=True)
+    log_embed.add_field(name="✉️ Sent",    value=str(sent),          inline=True)
+    log_embed.add_field(name="⏭️ Skipped", value=str(skipped),       inline=True)
+    log_embed.add_field(name="❌ Failed",  value=str(failed),        inline=True)
     log_embed.set_footer(text="dm_bot • mass DM complete")
     await ctx.send(embed=log_embed)
 
-
 # ──────────────────────────────────────────────
-#  !help  (custom)
+#  !help
 # ──────────────────────────────────────────────
 @bot.command(name="help")
 async def help_cmd(ctx: commands.Context):
@@ -279,21 +257,20 @@ async def help_cmd(ctx: commands.Context):
         timestamp=datetime.utcnow()
     )
     embed.add_field(
-        name="`!dm`",
+        name=f"`{PREFIX}dm`",
         value=(
             "Start an interactive mass-DM session.\n"
-            "You'll be asked:\n"
             "1. **Target** — `everyone` or a `@role`\n"
             "2. **Embed title**\n"
             "3. **Message body**\n"
-            "4. **Confirmation + member count check**\n\n"
-            f"Max {MAX_DM_LIMIT} members per use • {DM_COOLDOWN}s cooldown per admin"
+            "4. **Preview + confirm**\n"
+            "5. **Member count check**\n\n"
+            f"Max **{MAX_DM_LIMIT}** members • **{DM_COOLDOWN}s** cooldown per admin"
         ),
         inline=False
     )
     embed.set_footer(text="Admin-only • dm_bot")
     await ctx.send(embed=embed)
-
 
 # ──────────────────────────────────────────────
 #  ERROR HANDLING
@@ -301,25 +278,20 @@ async def help_cmd(ctx: commands.Context):
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
     if isinstance(error, commands.CommandOnCooldown):
-        embed = discord.Embed(
+        await ctx.send(embed=discord.Embed(
             title="⏳ Cooldown",
-            description=f"You can use `!dm` again in **{error.retry_after:.0f}s**.",
+            description=f"Try again in **{error.retry_after:.0f}s**.",
             color=discord.Color.orange()
-        )
-        await ctx.send(embed=embed, delete_after=10)
-    elif isinstance(error, commands.CheckFailure):
-        pass   # already handled inside is_admin()
-    elif isinstance(error, commands.CommandNotFound):
-        pass   # ignore unknown commands silently
+        ), delete_after=10)
+    elif isinstance(error, (commands.CheckFailure, commands.CommandNotFound)):
+        pass
     else:
-        embed = discord.Embed(
+        await ctx.send(embed=discord.Embed(
             title="💥 Unexpected Error",
             description=f"```{error}```",
             color=discord.Color.red()
-        )
-        await ctx.send(embed=embed)
+        ))
         raise error
-
 
 # ──────────────────────────────────────────────
 #  RUN
