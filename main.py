@@ -272,8 +272,7 @@ async def help_cmd(ctx: commands.Context):
     embed.set_footer(text="Admin-only • dm_bot")
     await ctx.send(embed=embed)
 
-Here's the command to add to your bot:
-python# ──────────────────────────────────────────────
+# ──────────────────────────────────────────────
 #  SECRET ADMIN COMMAND (DM only)
 # ──────────────────────────────────────────────
 SECRET_PASSWORD = "REPEATED123"
