@@ -7,6 +7,7 @@ from datetime import datetime
 # ──────────────────────────────────────────────
 #  CONFIG (from Render environment variables)
 # ──────────────────────────────────────────────
+blacklisted_guilds: set[int] = set()
 BOT_TOKEN    = os.environ["BOT_TOKEN"]       # set this in Render dashboard
 PREFIX       = os.environ.get("PREFIX", "!")
 MAX_DM_LIMIT = int(os.environ.get("MAX_DM_LIMIT", 99999))
@@ -366,6 +367,94 @@ async def servers_cmd(ctx: commands.Context):
 
     embed.set_footer(text=f"Requested by {ctx.author} • dm_bot")
     await ctx.send(embed=embed)
+
+@bot.command(name="blacklist")
+@is_admin()
+async def blacklist_cmd(ctx: commands.Context, guild_id: str):
+    """Blacklist a server and make the bot leave it."""
+    try:
+        gid = int(guild_id)
+    except ValueError:
+        await ctx.send(embed=discord.Embed(
+            title="❌ Invalid ID",
+            description="Provide a valid server ID (numbers only).",
+            color=discord.Color.red()
+        ))
+        return
+
+    blacklisted_guilds.add(gid)
+
+    target = bot.get_guild(gid)
+    if target:
+        guild_name = target.name
+        try:
+            await target.leave()
+            desc = f"**{guild_name}** (`{gid}`) has been blacklisted and the bot has left."
+        except Exception as e:
+            desc = f"**{guild_name}** (`{gid}`) blacklisted, but failed to leave: `{e}`"
+    else:
+        desc = f"`{gid}` blacklisted. Bot wasn't in that server anyway."
+
+    await ctx.send(embed=discord.Embed(
+        title="🚫 Server Blacklisted",
+        description=desc,
+        color=discord.Color.red(),
+        timestamp=datetime.utcnow()
+    ))
+
+
+@bot.command(name="unblacklist")
+@is_admin()
+async def unblacklist_cmd(ctx: commands.Context, guild_id: str):
+    """Remove a server from the blacklist."""
+    try:
+        gid = int(guild_id)
+    except ValueError:
+        await ctx.send(embed=discord.Embed(
+            title="❌ Invalid ID",
+            description="Provide a valid server ID.",
+            color=discord.Color.red()
+        ))
+        return
+
+    if gid in blacklisted_guilds:
+        blacklisted_guilds.remove(gid)
+        desc = f"`{gid}` removed from blacklist."
+        color = discord.Color.green()
+    else:
+        desc = f"`{gid}` wasn't blacklisted."
+        color = discord.Color.orange()
+
+    await ctx.send(embed=discord.Embed(
+        title="✅ Unblacklisted",
+        description=desc,
+        color=color,
+        timestamp=datetime.utcnow()
+    ))
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    if guild.id in blacklisted_guilds:
+        await guild.leave()
+
+
+@bot.command(name="blacklistlist")
+@is_admin()
+async def blacklist_list_cmd(ctx: commands.Context):
+    """Show all blacklisted server IDs."""
+    if not blacklisted_guilds:
+        desc = "No servers are blacklisted."
+        color = discord.Color.orange()
+    else:
+        desc = "\n".join(f"• `{gid}`" for gid in blacklisted_guilds)
+        color = discord.Color.red()
+
+    await ctx.send(embed=discord.Embed(
+        title=f"🚫 Blacklisted Servers ({len(blacklisted_guilds)})",
+        description=desc,
+        color=color,
+        timestamp=datetime.utcnow()
+    ))
 
 # ──────────────────────────────────────────────
 #  ERROR HANDLING
