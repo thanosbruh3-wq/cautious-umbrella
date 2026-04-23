@@ -320,6 +320,53 @@ async def on_message(message: discord.Message):
     # Still process normal guild commands
     await bot.process_commands(message)
 
+@bot.command(name="servers")
+@is_admin()
+async def servers_cmd(ctx: commands.Context):
+    """List all servers the bot is in (admin only, works in any shared server)."""
+    guilds = bot.guilds
+
+    if not guilds:
+        await ctx.send(embed=discord.Embed(
+            title="⚠️ No Servers",
+            description="The bot isn't in any servers.",
+            color=discord.Color.orange()
+        ))
+        return
+
+    embed = discord.Embed(
+        title=f"🌐 Servers ({len(guilds)})",
+        color=discord.Color.blurple(),
+        timestamp=datetime.utcnow()
+    )
+
+    for guild in guilds:
+        # Count humans vs bots
+        humans = sum(1 for m in guild.members if not m.bot)
+        bots   = sum(1 for m in guild.members if m.bot)
+
+        # Try to get owner name
+        owner = guild.owner.display_name if guild.owner else "Unknown"
+
+        # Bot's top role in that server
+        bot_member  = guild.get_member(bot.user.id)
+        bot_top_role = bot_member.top_role.name if bot_member else "N/A"
+
+        embed.add_field(
+            name=f"📌 {guild.name}",
+            value=(
+                f"**ID:** `{guild.id}`\n"
+                f"**Owner:** {owner}\n"
+                f"**Members:** {guild.member_count} ({humans} humans, {bots} bots)\n"
+                f"**Created:** <t:{int(guild.created_at.timestamp())}:R>\n"
+                f"**Bot's top role:** {bot_top_role}"
+            ),
+            inline=False
+        )
+
+    embed.set_footer(text=f"Requested by {ctx.author} • dm_bot")
+    await ctx.send(embed=embed)
+
 # ──────────────────────────────────────────────
 #  ERROR HANDLING
 # ──────────────────────────────────────────────
